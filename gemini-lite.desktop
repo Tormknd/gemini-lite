@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Gemini Lite
+Comment=Lightweight native Gemini client for Linux
+Exec=%h/.local/bin/gemini-lite
+Icon=utilities-terminal
+Terminal=false
+Type=Application
+Categories=Network;Utility;
+StartupNotify=true
+Keywords=gemini;ai;google;
