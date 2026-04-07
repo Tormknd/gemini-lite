@@ -181,11 +181,11 @@ struct GenerateRequest<'a> {
 #[derive(Debug)]
 enum UiEvent {
     Delta(String),
-    Done(String),
+    Done(String, u32),
     Error(String),
 }
 
-fn extract_text_from_stream_payload(payload: &serde_json::Value) -> String {
+fn extract_text_and_tokens(payload: &serde_json::Value) -> (String, Option<u32>) {
     let mut out = String::new();
     if let Some(candidates) = payload["candidates"].as_array() {
         for candidate in candidates {
@@ -198,7 +198,10 @@ fn extract_text_from_stream_payload(payload: &serde_json::Value) -> String {
             }
         }
     }
-    out
+    let tokens = payload["usageMetadata"]["totalTokenCount"]
+        .as_u64()
+        .map(|v| v as u32);
+    (out, tokens)
 }
 
 fn extract_sse_events(buffer: &mut String) -> Vec<String> {
@@ -226,7 +229,7 @@ async fn stream_gemini(
     model_id: &str,
     history: &[Content],
     tx: &async_channel::Sender<UiEvent>,
-) -> Result<String> {
+) -> Result<(String, u32)> {
     let body = GenerateRequest { contents: history };
 
     let resp = client
@@ -254,6 +257,7 @@ async fn stream_gemini(
     let mut sse_buffer = String::new();
     let mut full_text = String::new();
     let mut last_snapshot = String::new();
+    let mut final_tokens = 0;
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.context("failed to read stream chunk")?;
@@ -267,7 +271,10 @@ async fn stream_gemini(
             }
             let payload: serde_json::Value =
                 serde_json::from_str(&event).context("invalid SSE JSON payload")?;
-            let fragment = extract_text_from_stream_payload(&payload);
+            let (fragment, tokens) = extract_text_and_tokens(&payload);
+            if let Some(t) = tokens {
+                final_tokens = t;
+            }
             if !fragment.is_empty() {
                 let delta = if fragment.starts_with(&last_snapshot) {
                     fragment[last_snapshot.len()..].to_string()
@@ -294,7 +301,10 @@ async fn stream_gemini(
             }
             let payload: serde_json::Value =
                 serde_json::from_str(&event).context("invalid trailing SSE JSON payload")?;
-            let fragment = extract_text_from_stream_payload(&payload);
+            let (fragment, tokens) = extract_text_and_tokens(&payload);
+            if let Some(t) = tokens {
+                final_tokens = t;
+            }
             if !fragment.is_empty() {
                 let delta = if fragment.starts_with(&last_snapshot) {
                     fragment[last_snapshot.len()..].to_string()
@@ -317,7 +327,7 @@ async fn stream_gemini(
         anyhow::bail!("stream ended without model text");
     }
 
-    Ok(full_text)
+    Ok((full_text, final_tokens))
 }
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
@@ -459,6 +469,13 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
     msg_input.set_hexpand(true);
     msg_input.set_placeholder_text(Some("Message Gemini…"));
 
+    let token_label = gtk::Label::new(Some("Context: 0 tokens"));
+    token_label.set_margin_end(10);
+    token_label.set_opacity(0.6);
+
+    let clear_btn = gtk::Button::with_label("Clear");
+    clear_btn.set_tooltip_text(Some("Clear conversation context (Ctrl+K)"));
+
     let model_selector = gtk::ComboBoxText::new();
     model_selector.append(
         Some("gemini-2.5-flash"),
@@ -474,6 +491,8 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
 
     let send_btn = gtk::Button::with_label("Send");
     input_row.pack_start(&msg_input, true, true, 0);
+    input_row.pack_start(&token_label, false, false, 0);
+    input_row.pack_start(&clear_btn, false, false, 0);
     input_row.pack_start(&model_selector, false, false, 0);
     input_row.pack_start(&send_btn, false, false, 0);
     chat_root.pack_start(&input_row, false, false, 0);
@@ -533,6 +552,17 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
                 role: "user".to_string(),
                 parts: vec![Part { text }],
             });
+
+            // Context pruning: Keep only the last 10 messages to save tokens.
+            if hist.len() > 10 {
+                let mut start = hist.len() - 10;
+                // Gemini API requires the first message in the history to be from 'user'.
+                if hist[start].role != "user" {
+                    start += 1;
+                }
+                *hist = hist[start..].to_vec();
+            }
+
             let snapshot = hist.clone();
             drop(hist);
 
@@ -540,8 +570,8 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
             let client = http_client.clone();
             rt.spawn(async move {
                 match stream_gemini(&client, &api_key, &selected_model, &snapshot, &tx).await {
-                    Ok(reply) => {
-                        tx.try_send(UiEvent::Done(reply)).ok();
+                    Ok((reply, tokens)) => {
+                        tx.try_send(UiEvent::Done(reply, tokens)).ok();
                     }
                     Err(e) => {
                         tx.try_send(UiEvent::Error(format!("{e:#}"))).ok();
@@ -555,12 +585,29 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
     send_btn.connect_clicked(move |_| s());
     msg_input.connect_activate(move |_| send());
 
+    // ── Clear logic ────────────────────────────────────────────────────────
+    let clear: Rc<dyn Fn()> = {
+        let history = history.clone();
+        let chat_view = chat_view.clone();
+        let token_label = token_label.clone();
+        Rc::new(move || {
+            history.lock().unwrap().clear();
+            let buffer = chat_view.buffer().expect("no buffer");
+            buffer.set_text("");
+            token_label.set_text("Context: 0 tokens");
+        })
+    };
+
+    let c_btn = Rc::clone(&clear);
+    clear_btn.connect_clicked(move |_| c_btn());
+
     // ── Async result handler ───────────────────────────────────────────────
     {
         let chat_view = chat_view.clone();
         let end_mark = end_mark.clone();
         let send_btn_rx = send_btn.clone();
         let model_selector_rx = model_selector.clone();
+        let token_label_rx = token_label.clone();
 
         let mut model_message_open = false;
         glib::MainContext::default().spawn_local(async move {
@@ -573,7 +620,7 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
                         }
                         append_text_fragment(&chat_view, &end_mark, &fragment);
                     }
-                    UiEvent::Done(reply) => {
+                    UiEvent::Done(reply, tokens) => {
                         append_text_fragment(&chat_view, &end_mark, "\n");
                         history.lock().unwrap().push(Content {
                             role: "model".to_string(),
@@ -581,6 +628,7 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
                                 text: reply.clone(),
                             }],
                         });
+                        token_label_rx.set_text(&format!("Context: {tokens} tokens"));
                         send_btn_rx.set_sensitive(true);
                         model_selector_rx.set_sensitive(true);
                         model_message_open = false;
@@ -644,12 +692,20 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
         stack.set_visible_child_name("chat");
     }
 
+    let c_key = Rc::clone(&clear);
     window.connect_key_press_event(move |win, event| {
-        if event.state().contains(gdk::ModifierType::CONTROL_MASK)
-            && event.keyval() == gdk::keys::constants::q
-        {
-            win.close();
-            return glib::Propagation::Stop;
+        if event.state().contains(gdk::ModifierType::CONTROL_MASK) {
+            match event.keyval() {
+                gdk::keys::constants::q => {
+                    win.close();
+                    return glib::Propagation::Stop;
+                }
+                gdk::keys::constants::k => {
+                    c_key();
+                    return glib::Propagation::Stop;
+                }
+                _ => {}
+            }
         }
         glib::Propagation::Proceed
     });

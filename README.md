@@ -1,5 +1,9 @@
 # Gemini Lite
 
+<p align="center">
+  <img src="assets/Logo.png" alt="Gemini Lite Logo" width="150" />
+</p>
+
 > A lightweight, native Linux client for Google Gemini. No Electron, no WebKit, just Rust.
 
 [![CI](https://github.com/Tormknd/gemini-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/Tormknd/gemini-lite/actions)
@@ -16,7 +20,7 @@ Gemini Lite started from a simple frustration: asking text questions should not 
 
 Modern desktop software often accepts avoidable overhead as "normal". This project does not.
 
-- **Efficiency by design:** native GTK 3 UI + Rust runtime, no embedded Chromium.
+- **Efficiency by design:** native GTK 3 UI + Rust runtime, no embedded Chromium. I chose GTK 3 over GTK 4 because it's rock-solid, has a smaller shared-library footprint on most stable distributions, and stays out of the way of the core logic.
 - **API-first architecture:** the app calls Gemini REST directly instead of wrapping `gemini.google.com`.
 - **Pragmatic security:** API key in Secret Service (GNOME Keyring) when available, with a restricted file fallback.
 
@@ -40,11 +44,13 @@ These numbers are measured on a local Linux workstation and should be treated as
 
 ## Features
 
-- Multi-turn conversations (full history sent each turn)
-- Streaming model responses in real time (SSE)
-- API key storage in GNOME Keyring, with mode-`0600` file fallback in `~/.config/gemini-lite/`
-- Dark theme via GTK preference
-- Window size and position persisted between sessions
+- **Token Efficiency:** To keep API costs near zero, Gemini Lite limits conversation history (sliding window of the last 10 messages) and includes a `Ctrl+K` shortcut to instantly drop context. A token counter updates after every request.
+- **Model Selector:** Instantly switch between fast (Flash) and reasoning (Pro) models directly in the UI.
+- **Multi-turn conversations:** Context is handled dynamically to balance coherence and API token usage.
+- **Streaming model responses:** Responses stream progressively in real time via SSE.
+- **Secure key storage:** Uses GNOME Keyring, with a mode-`0600` file fallback (`~/.config/gemini-lite/`).
+- **Native dark theme:** Follows the global GTK preference.
+- **Persistent UI:** Remembers window size and position between sessions.
 
 ## Architecture
 
@@ -114,10 +120,11 @@ See `assets/screenshots/` for UI and memory-footprint captures.
 ## Keyboard shortcuts
 
 
-| Key      | Action       |
-| -------- | ------------ |
-| `Enter`  | Send message |
-| `Ctrl+Q` | Quit         |
+| Key      | Action                    |
+| -------- | ------------------------- |
+| `Enter`  | Send message              |
+| `Ctrl+K` | Clear context and history |
+| `Ctrl+Q` | Quit                      |
 
 
 ---
