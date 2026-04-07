@@ -1,11 +1,12 @@
 # Gemini Lite
+
 > A lightweight, native Linux client for Google Gemini. No Electron, no WebKit, just Rust.
 
-[![CI](https://github.com/Tormknd/gemini-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/Tormknd/gemini-lite/actions)
-![Rust](https://img.shields.io/badge/language-Rust-orange.svg)
-![GTK3](https://img.shields.io/badge/toolkit-GTK3-blue.svg)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)
+[CI](https://github.com/Tormknd/gemini-lite/actions)
+Rust
+GTK3
+[License: MIT](LICENSE)
+Platform
 
 Gemini Lite started from a simple frustration: asking text questions should not require a full browser engine and hundreds of MB of RAM. This app is a native GTK client in Rust that talks directly to the Gemini API.
 
@@ -27,11 +28,13 @@ Historical note: an early WebKitGTK wrapper worked locally but failed reliably b
 
 These numbers are measured on a local Linux workstation and should be treated as indicative, not absolute.
 
-| Metric | Chrome + Gemini tab | Gemini Lite |
-| :--- | :--- | :--- |
-| **Idle RAM** | 500–800 MB | **15–30 MB** |
-| **Native dependencies** | Full web engine stack | **GTK 3 only** |
-| **TLS stack** | Browser-managed | **rustls (no OpenSSL)** |
+
+| Metric                  | Chrome + Gemini tab   | Gemini Lite             |
+| ----------------------- | --------------------- | ----------------------- |
+| **Idle RAM**            | 500–800 MB            | **15–30 MB**            |
+| **Native dependencies** | Full web engine stack | **GTK 3 only**          |
+| **TLS stack**           | Browser-managed       | **rustls (no OpenSSL)** |
+
 
 ---
 
@@ -54,6 +57,8 @@ graph TD
     C -->|UiEvent::Delta / Done / Error| E[async-channel Receiver]
     E -->|glib::MainContext spawn_local| A
 ```
+
+
 
 GTK objects stay on the main thread. HTTP runs in Tokio. `async_channel` is the bridge.
 
@@ -108,10 +113,12 @@ See `assets/screenshots/` for UI and memory-footprint captures.
 
 ## Keyboard shortcuts
 
+
 | Key      | Action       |
 | -------- | ------------ |
 | `Enter`  | Send message |
 | `Ctrl+Q` | Quit         |
+
 
 ---
 
