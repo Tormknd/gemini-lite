@@ -15,7 +15,7 @@ use tokio::runtime::Runtime;
 
 const APP_ID: &str = "com.example.gemini-lite";
 const APP_TITLE: &str = "Gemini Lite";
-const API_URL_STREAM: &str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent";
+const API_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 const DEFAULT_WIDTH: i32 = 900;
 const DEFAULT_HEIGHT: i32 = 700;
 const KEYRING_SERVICE: &str = "gemini-lite";
@@ -223,13 +223,16 @@ fn extract_sse_events(buffer: &mut String) -> Vec<String> {
 async fn stream_gemini(
     client: &reqwest::Client,
     api_key: &str,
+    model_id: &str,
     history: &[Content],
     tx: &async_channel::Sender<UiEvent>,
 ) -> Result<String> {
     let body = GenerateRequest { contents: history };
 
     let resp = client
-        .post(format!("{API_URL_STREAM}?alt=sse&key={api_key}"))
+        .post(format!(
+            "{API_BASE_URL}/{model_id}:streamGenerateContent?alt=sse&key={api_key}"
+        ))
         .json(&body)
         .send()
         .await
@@ -455,8 +458,23 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
     let msg_input = gtk::Entry::new();
     msg_input.set_hexpand(true);
     msg_input.set_placeholder_text(Some("Message Gemini…"));
+
+    let model_selector = gtk::ComboBoxText::new();
+    model_selector.append(
+        Some("gemini-2.5-flash"),
+        "Gemini 2.5 Flash (Fast & Default)",
+    );
+    model_selector.append(
+        Some("gemini-3.1-pro-preview"),
+        "Gemini 3.1 Pro (Preview Reasoning)",
+    );
+    model_selector.append(Some("gemini-2.5-pro"), "Gemini 2.5 Pro (Stable Reasoning)");
+    model_selector.set_active_id(Some("gemini-2.5-flash"));
+    model_selector.set_tooltip_text(Some("Select the Gemini model to use"));
+
     let send_btn = gtk::Button::with_label("Send");
     input_row.pack_start(&msg_input, true, true, 0);
+    input_row.pack_start(&model_selector, false, false, 0);
     input_row.pack_start(&send_btn, false, false, 0);
     chat_root.pack_start(&input_row, false, false, 0);
 
@@ -487,6 +505,7 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
         let rt = rt.clone();
         let send_btn = send_btn.clone();
         let http_client = http_client.clone();
+        let model_selector = model_selector.clone();
 
         Rc::new(move || {
             let text = msg_input.text().trim().to_string();
@@ -499,8 +518,14 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
                 return;
             }
 
+            let selected_model = model_selector
+                .active_id()
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "gemini-2.5-flash".to_string());
+
             msg_input.set_text("");
             send_btn.set_sensitive(false);
+            model_selector.set_sensitive(false);
             append_message(&chat_view, &end_mark, "user", &text);
 
             let mut hist = history.lock().unwrap();
@@ -514,7 +539,7 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
             let tx = tx.clone();
             let client = http_client.clone();
             rt.spawn(async move {
-                match stream_gemini(&client, &api_key, &snapshot, &tx).await {
+                match stream_gemini(&client, &api_key, &selected_model, &snapshot, &tx).await {
                     Ok(reply) => {
                         tx.try_send(UiEvent::Done(reply)).ok();
                     }
@@ -535,6 +560,7 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
         let chat_view = chat_view.clone();
         let end_mark = end_mark.clone();
         let send_btn_rx = send_btn.clone();
+        let model_selector_rx = model_selector.clone();
 
         let mut model_message_open = false;
         glib::MainContext::default().spawn_local(async move {
@@ -556,6 +582,7 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
                             }],
                         });
                         send_btn_rx.set_sensitive(true);
+                        model_selector_rx.set_sensitive(true);
                         model_message_open = false;
                     }
                     UiEvent::Error(e) => {
@@ -566,6 +593,7 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
                         buf.move_mark(&end_mark, &end);
                         chat_view.scroll_to_mark(&end_mark, 0.0, false, 0.0, 1.0);
                         send_btn_rx.set_sensitive(true);
+                        model_selector_rx.set_sensitive(true);
                         model_message_open = false;
                     }
                 }
