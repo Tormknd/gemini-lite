@@ -174,7 +174,10 @@ struct Content {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 struct GenerateRequest<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system_instruction: Option<Content>,
     contents: &'a [Content],
 }
 
@@ -230,7 +233,17 @@ async fn stream_gemini(
     history: &[Content],
     tx: &async_channel::Sender<UiEvent>,
 ) -> Result<(String, u32)> {
-    let body = GenerateRequest { contents: history };
+    let system_instruction = Some(Content {
+        role: "user".to_string(),
+        parts: vec![Part {
+            text: "You are a highly efficient, expert AI assistant. Be direct, concise, and prioritize accuracy. If the user asks a coding question, provide senior-level answers without unnecessary fluff. Respond in French unless asked otherwise.".to_string(),
+        }],
+    });
+
+    let body = GenerateRequest {
+        system_instruction,
+        contents: history,
+    };
 
     let resp = client
         .post(format!(
