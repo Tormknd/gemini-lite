@@ -2,11 +2,11 @@
 
 > A lightweight, native Linux client for Google Gemini. No Electron, no WebKit, just Rust.
 
-[CI](https://github.com/Tormknd/gemini-lite/actions)
-Rust
-GTK3
-[License: MIT](LICENSE)
-Platform
+[![CI](https://github.com/Tormknd/gemini-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/Tormknd/gemini-lite/actions)
+![Rust](https://img.shields.io/badge/language-Rust-orange.svg)
+![GTK3](https://img.shields.io/badge/toolkit-GTK3-blue.svg)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)
 
 Gemini Lite started from a simple frustration: asking text questions should not require a full browser engine and hundreds of MB of RAM. This app is a native GTK client in Rust that talks directly to the Gemini API.
 
