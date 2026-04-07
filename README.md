@@ -1,5 +1,9 @@
 # Gemini Lite
 
+<p align="center">
+  <img src="assets/Logo.png" alt="Gemini Lite Logo" width="150" />
+</p>
+
 > A lightweight, native Linux client for Google Gemini. No Electron, no WebKit, just Rust.
 
 [![CI](https://github.com/Tormknd/gemini-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/Tormknd/gemini-lite/actions)
