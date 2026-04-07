@@ -432,6 +432,13 @@ fn build_setup_page() -> (gtk::Box, gtk::Entry, gtk::Button, gtk::Label) {
 fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
     apply_dark_theme();
 
+    // Set the application icon
+    if Path::new("assets/Logo.png").exists() {
+        gtk::Window::set_default_icon_from_file("assets/Logo.png").ok();
+    } else {
+        gtk::Window::set_default_icon_name("com.example.gemini-lite");
+    }
+
     let state = load_window_state();
     let window = gtk::ApplicationWindow::new(app);
     window.set_title(APP_TITLE);
