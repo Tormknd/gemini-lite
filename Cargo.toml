@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2021"
 description = "Lightweight native Gemini client for Linux — pure GTK + official API"
 license = "MIT"
-repository = "https://github.com/chhaju/gemini-lite"
+repository = "https://github.com/Tormknd/gemini-lite"
 
 [dependencies]
 anyhow     = "1"

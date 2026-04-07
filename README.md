@@ -1,6 +1,6 @@
 # Gemini Lite
 
-[![CI](https://github.com/chhaju/gemini-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/chhaju/gemini-lite/actions)
+[![CI](https://github.com/Tormknd/gemini-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/Tormknd/gemini-lite/actions)
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
@@ -60,7 +60,7 @@ No WebKit, no OpenSSL — those are the only native deps.
 ### Build & install
 
 ```bash
-git clone https://github.com/chhaju/gemini-lite
+git clone https://github.com/Tormknd/gemini-lite
 cd gemini-lite
 make install
 ```
