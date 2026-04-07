@@ -447,6 +447,11 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
         window.move_(x, y);
     }
 
+    // Force icon on this specific window instance (helps on some Linux WMs)
+    if Path::new("assets/Logo.png").exists() {
+        window.set_icon_from_file("assets/Logo.png").ok();
+    }
+
     let stack = gtk::Stack::new();
     stack.set_transition_type(gtk::StackTransitionType::Crossfade);
     stack.set_transition_duration(150);
