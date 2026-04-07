@@ -1,29 +1,50 @@
 # Gemini Lite
 
-[![CI](https://github.com/Tormknd/gemini-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/Tormknd/gemini-lite/actions)
-[![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+> A lightweight, native Linux client for Google Gemini. No Electron, no WebKit, just Rust.
 
-I wanted to use Gemini without keeping a browser tab open. Chrome eats 500–800 MB just to render the page. Firefox isn't much better. This is a native Linux desktop app built in Rust and GTK 3 that talks directly to the Gemini API — idle memory sits around 15–30 MB.
+[CI](https://github.com/Tormknd/gemini-lite/actions)
+Rust
+GTK3
+[License: MIT](LICENSE)
+Platform
+
+Gemini Lite started from a simple frustration: asking text questions should not require a full browser engine and hundreds of MB of RAM. This app is a native GTK client in Rust that talks directly to the Gemini API.
 
 ---
 
-## Why not just use the browser?
+## The Philosophy
 
-Honestly the UX is fine. The problem is the footprint. A Chrome tab with Gemini loaded pulls in a full rendering engine, a JavaScript runtime, GPU compositing layers — none of which you need to send a text prompt and read a response.
+Modern desktop software often accepts avoidable overhead as "normal". This project does not.
 
-I started by wrapping `gemini.google.com` in a WebKitGTK window (basically a minimal browser). It worked locally but Google's WAF killed it in production: WebKitGTK has a distinct TLS fingerprint (different GREASE values and cipher ordering than Chrome/Safari) that Google's bot detection flags consistently, regardless of what User-Agent you spoof. Rather than pulling in Chromium Embedded Framework (~150 MB of deps) to fix the fingerprint, I scrapped the web wrapper entirely and called the REST API directly. Simpler, lighter, no more 502s.
+- **Efficiency by design:** native GTK 3 UI + Rust runtime, no embedded Chromium.
+- **API-first architecture:** the app calls Gemini REST directly instead of wrapping `gemini.google.com`.
+- **Pragmatic security:** API key in Secret Service (GNOME Keyring) when available, with a restricted file fallback.
+
+Historical note: an early WebKitGTK wrapper worked locally but failed reliably behind Google's WAF due to TLS/client fingerprint differences. Switching to the official API removed that class of failures and simplified the stack.
+
+---
+
+## Benchmarks (Typical)
+
+These numbers are measured on a local Linux workstation and should be treated as indicative, not absolute.
+
+
+| Metric                  | Chrome + Gemini tab   | Gemini Lite             |
+| ----------------------- | --------------------- | ----------------------- |
+| **Idle RAM**            | 500–800 MB            | **15–30 MB**            |
+| **Native dependencies** | Full web engine stack | **GTK 3 only**          |
+| **TLS stack**           | Browser-managed       | **rustls (no OpenSSL)** |
+
 
 ---
 
 ## Features
 
-- ~15–30 MB RAM idle (vs. 500–800 MB for Chrome, 200–400 MB for Firefox)
-- Multi-turn conversations — full history sent with every request
-- API key stored in GNOME Keyring on first run; plain-file fallback (`~/.config/gemini-lite/`, mode 0600) if no Secret Service daemon is present
-- Dark theme via GTK system preference
-- Window size/position remembered between sessions
-- No OpenSSL dependency — TLS handled by `rustls`
+- Multi-turn conversations (full history sent each turn)
+- Streaming model responses in real time (SSE)
+- API key storage in GNOME Keyring, with mode-`0600` file fallback in `~/.config/gemini-lite/`
+- Dark theme via GTK preference
+- Window size and position persisted between sessions
 
 ## Architecture
 
@@ -31,13 +52,15 @@ I started by wrapping `gemini.google.com` in a WebKitGTK window (basically a min
 graph TD
     A[GTK 3 Window] -->|user input| B[async-channel Sender]
     B -->|history Vec snapshot| C[Tokio async task]
-    C -->|reqwest + rustls| D[Gemini REST API v1beta]
-    D -->|JSON response| C
-    C -->|Result<String>| E[async-channel Receiver]
+    C -->|reqwest + rustls + SSE| D[Gemini REST API v1beta]
+    D -->|stream chunks| C
+    C -->|UiEvent::Delta / Done / Error| E[async-channel Receiver]
     E -->|glib::MainContext spawn_local| A
 ```
 
-GTK objects stay on the main thread. The HTTP layer runs in a Tokio runtime. `async_channel` is the only bridge between them.
+
+
+GTK objects stay on the main thread. HTTP runs in Tokio. `async_channel` is the bridge.
 
 ---
 
@@ -49,15 +72,13 @@ GTK objects stay on the main thread. The HTTP layer runs in a Tokio runtime. `as
 sudo apt-get install -y pkg-config libgtk-3-dev
 ```
 
-No WebKit, no OpenSSL — those are the only native deps.
-
 ### Get a Gemini API key
 
 1. Go to [https://aistudio.google.com](https://aistudio.google.com)
-2. **Get API key** → **Create API key**
-3. Copy it — the app will ask for it on first launch
+2. Click **Get API key** then **Create API key**
+3. Keep it ready for first launch
 
-### Build & install
+### Build and install
 
 ```bash
 git clone https://github.com/Tormknd/gemini-lite
@@ -73,9 +94,9 @@ Binary goes to `~/.local/bin/gemini-lite`, desktop entry to `~/.local/share/appl
 gemini-lite
 ```
 
-First launch shows an onboarding screen to paste your key. It gets saved to your system keyring automatically. After that, just launch and chat.
+First launch asks for your API key. It is stored in your system keyring when available.
 
-If you prefer the environment variable (handy for dev):
+For local development, env var still works:
 
 ```bash
 export GEMINI_API_KEY="AIza..."
@@ -84,12 +105,20 @@ gemini-lite
 
 ---
 
+## Screenshots
+
+See `assets/screenshots/` for UI and memory-footprint captures.
+
+---
+
 ## Keyboard shortcuts
 
-| Key | Action |
-|-----|--------|
-| `Enter` | Send message |
-| `Ctrl+Q` | Quit |
+
+| Key      | Action       |
+| -------- | ------------ |
+| `Enter`  | Send message |
+| `Ctrl+Q` | Quit         |
+
 
 ---
 

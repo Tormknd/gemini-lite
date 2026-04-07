@@ -5,6 +5,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
+use futures_util::StreamExt;
 use gio::prelude::*;
 use gtk::gdk;
 use gtk::glib;
@@ -14,8 +15,7 @@ use tokio::runtime::Runtime;
 
 const APP_ID: &str = "com.example.gemini-lite";
 const APP_TITLE: &str = "Gemini Lite";
-const API_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const API_URL_STREAM: &str = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent";
 const DEFAULT_WIDTH: i32 = 900;
 const DEFAULT_HEIGHT: i32 = 700;
 const KEYRING_SERVICE: &str = "gemini-lite";
@@ -178,34 +178,143 @@ struct GenerateRequest<'a> {
     contents: &'a [Content],
 }
 
-async fn call_gemini(
+#[derive(Debug)]
+enum UiEvent {
+    Delta(String),
+    Done(String),
+    Error(String),
+}
+
+fn extract_text_from_stream_payload(payload: &serde_json::Value) -> String {
+    let mut out = String::new();
+    if let Some(candidates) = payload["candidates"].as_array() {
+        for candidate in candidates {
+            if let Some(parts) = candidate["content"]["parts"].as_array() {
+                for part in parts {
+                    if let Some(text) = part["text"].as_str() {
+                        out.push_str(text);
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+fn extract_sse_events(buffer: &mut String) -> Vec<String> {
+    let mut events = Vec::new();
+    while let Some(idx) = buffer.find("\n\n") {
+        let raw_event = buffer[..idx].to_string();
+        buffer.drain(..idx + 2);
+
+        let mut data_lines = Vec::new();
+        for line in raw_event.lines() {
+            if let Some(rest) = line.strip_prefix("data:") {
+                data_lines.push(rest.trim_start().to_string());
+            }
+        }
+        if !data_lines.is_empty() {
+            events.push(data_lines.join("\n"));
+        }
+    }
+    events
+}
+
+async fn stream_gemini(
     client: &reqwest::Client,
     api_key: &str,
     history: &[Content],
+    tx: &async_channel::Sender<UiEvent>,
 ) -> Result<String> {
     let body = GenerateRequest { contents: history };
 
     let resp = client
-        .post(format!("{API_URL}?key={api_key}"))
+        .post(format!("{API_URL_STREAM}?alt=sse&key={api_key}"))
         .json(&body)
         .send()
         .await
         .context("HTTP request failed")?;
 
     let status = resp.status();
-    let json: serde_json::Value = resp.json().await.context("failed to parse API response")?;
-
     if !status.is_success() {
+        let json: serde_json::Value = resp
+            .json()
+            .await
+            .context("failed to parse API error response")?;
         let msg = json["error"]["message"]
             .as_str()
             .unwrap_or("unknown API error");
         anyhow::bail!("API {status}: {msg}");
     }
 
-    json["candidates"][0]["content"]["parts"][0]["text"]
-        .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| anyhow::anyhow!("unexpected response shape: {json}"))
+    let mut stream = resp.bytes_stream();
+    let mut sse_buffer = String::new();
+    let mut full_text = String::new();
+    let mut last_snapshot = String::new();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("failed to read stream chunk")?;
+        sse_buffer.push_str(&String::from_utf8_lossy(&chunk));
+        sse_buffer = sse_buffer.replace("\r\n", "\n");
+
+        let events = extract_sse_events(&mut sse_buffer);
+        for event in events {
+            if event == "[DONE]" {
+                continue;
+            }
+            let payload: serde_json::Value =
+                serde_json::from_str(&event).context("invalid SSE JSON payload")?;
+            let fragment = extract_text_from_stream_payload(&payload);
+            if !fragment.is_empty() {
+                let delta = if fragment.starts_with(&last_snapshot) {
+                    fragment[last_snapshot.len()..].to_string()
+                } else {
+                    fragment.clone()
+                };
+                last_snapshot = fragment;
+                if delta.is_empty() {
+                    continue;
+                }
+                full_text.push_str(&delta);
+                tx.send(UiEvent::Delta(delta))
+                    .await
+                    .context("failed to send UI delta")?;
+            }
+        }
+    }
+
+    if !sse_buffer.trim().is_empty() {
+        sse_buffer.push_str("\n\n");
+        for event in extract_sse_events(&mut sse_buffer) {
+            if event == "[DONE]" {
+                continue;
+            }
+            let payload: serde_json::Value =
+                serde_json::from_str(&event).context("invalid trailing SSE JSON payload")?;
+            let fragment = extract_text_from_stream_payload(&payload);
+            if !fragment.is_empty() {
+                let delta = if fragment.starts_with(&last_snapshot) {
+                    fragment[last_snapshot.len()..].to_string()
+                } else {
+                    fragment.clone()
+                };
+                last_snapshot = fragment;
+                if delta.is_empty() {
+                    continue;
+                }
+                full_text.push_str(&delta);
+                tx.send(UiEvent::Delta(delta))
+                    .await
+                    .context("failed to send trailing UI delta")?;
+            }
+        }
+    }
+
+    if full_text.is_empty() {
+        anyhow::bail!("stream ended without model text");
+    }
+
+    Ok(full_text)
 }
 
 // ── UI helpers ─────────────────────────────────────────────────────────────────
@@ -225,6 +334,24 @@ fn append_message(view: &gtk::TextView, end_mark: &gtk::TextMark, role: &str, te
     };
     let mut iter = buffer.end_iter();
     buffer.insert(&mut iter, &format!("\n{prefix}\n{text}\n"));
+    let end = buffer.end_iter();
+    buffer.move_mark(end_mark, &end);
+    view.scroll_to_mark(end_mark, 0.0, false, 0.0, 1.0);
+}
+
+fn append_model_header(view: &gtk::TextView, end_mark: &gtk::TextMark) {
+    let buffer = view.buffer().expect("no buffer");
+    let mut iter = buffer.end_iter();
+    buffer.insert(&mut iter, "\n◆  Gemini\n");
+    let end = buffer.end_iter();
+    buffer.move_mark(end_mark, &end);
+    view.scroll_to_mark(end_mark, 0.0, false, 0.0, 1.0);
+}
+
+fn append_text_fragment(view: &gtk::TextView, end_mark: &gtk::TextMark, text: &str) {
+    let buffer = view.buffer().expect("no buffer");
+    let mut iter = buffer.end_iter();
+    buffer.insert(&mut iter, text);
     let end = buffer.end_iter();
     buffer.move_mark(end_mark, &end);
     view.scroll_to_mark(end_mark, 0.0, false, 0.0, 1.0);
@@ -346,7 +473,7 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
         Rc::new(RefCell::new(load_api_key().unwrap_or_default()));
 
     let history: Arc<Mutex<Vec<Content>>> = Arc::new(Mutex::new(Vec::new()));
-    let (tx, rx) = async_channel::unbounded::<Result<String>>();
+    let (tx, rx) = async_channel::unbounded::<UiEvent>();
     let http_client = Arc::new(reqwest::Client::new());
 
     // ── Chat send logic ────────────────────────────────────────────────────
@@ -387,8 +514,14 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
             let tx = tx.clone();
             let client = http_client.clone();
             rt.spawn(async move {
-                let result = call_gemini(&client, &api_key, &snapshot).await;
-                tx.try_send(result).ok();
+                match stream_gemini(&client, &api_key, &snapshot, &tx).await {
+                    Ok(reply) => {
+                        tx.try_send(UiEvent::Done(reply)).ok();
+                    }
+                    Err(e) => {
+                        tx.try_send(UiEvent::Error(format!("{e:#}"))).ok();
+                    }
+                }
             });
         })
     };
@@ -403,26 +536,37 @@ fn build_ui(app: &gtk::Application, rt: Arc<Runtime>) {
         let end_mark = end_mark.clone();
         let send_btn_rx = send_btn.clone();
 
+        let mut model_message_open = false;
         glib::MainContext::default().spawn_local(async move {
             while let Ok(result) = rx.recv().await {
-                send_btn_rx.set_sensitive(true);
                 match result {
-                    Ok(reply) => {
+                    UiEvent::Delta(fragment) => {
+                        if !model_message_open {
+                            append_model_header(&chat_view, &end_mark);
+                            model_message_open = true;
+                        }
+                        append_text_fragment(&chat_view, &end_mark, &fragment);
+                    }
+                    UiEvent::Done(reply) => {
+                        append_text_fragment(&chat_view, &end_mark, "\n");
                         history.lock().unwrap().push(Content {
                             role: "model".to_string(),
                             parts: vec![Part {
                                 text: reply.clone(),
                             }],
                         });
-                        append_message(&chat_view, &end_mark, "model", &reply);
+                        send_btn_rx.set_sensitive(true);
+                        model_message_open = false;
                     }
-                    Err(e) => {
+                    UiEvent::Error(e) => {
                         let buf = chat_view.buffer().expect("no buffer");
                         let mut iter = buf.end_iter();
-                        buf.insert(&mut iter, &format!("\n⚠  Error: {e:#}\n"));
+                        buf.insert(&mut iter, &format!("\n⚠  Error: {e}\n"));
                         let end = buf.end_iter();
                         buf.move_mark(&end_mark, &end);
                         chat_view.scroll_to_mark(&end_mark, 0.0, false, 0.0, 1.0);
+                        send_btn_rx.set_sensitive(true);
+                        model_message_open = false;
                     }
                 }
             }
