@@ -4,28 +4,26 @@
 [![Rust](https://img.shields.io/badge/rust-stable-orange)](https://www.rust-lang.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-A native Linux desktop client for Google Gemini. Written in Rust and GTK 3. No Electron. No Chromium. Idle memory footprint under 20 MB.
+I wanted to use Gemini without keeping a browser tab open. Chrome eats 500–800 MB just to render the page. Firefox isn't much better. This is a native Linux desktop app built in Rust and GTK 3 that talks directly to the Gemini API — idle memory sits around 15–30 MB.
 
 ---
 
-## Architectural Pivot & WAF Analysis
+## Why not just use the browser?
 
-**v1** embedded Google's web interface via WebKitGTK. It worked locally but Google's WAF systematically blocked it in production with HTTP 502 errors caused by **TLS and JavaScript fingerprinting**: WebKitGTK exposes a distinct TLS ClientHello signature (GREASE values, cipher ordering) and a non-standard JS engine profile that Google's bot-detection infrastructure flags regardless of User-Agent spoofing.
+Honestly the UX is fine. The problem is the footprint. A Chrome tab with Gemini loaded pulls in a full rendering engine, a JavaScript runtime, GPU compositing layers — none of which you need to send a text prompt and read a response.
 
-Integrating Chromium Embedded Framework would have fixed the fingerprint but at the cost of adding ~150 MB of runtime dependencies — a non-starter for a project whose sole raison d'être is lightweight footprint.
-
-The only viable path that respects the constraints: **drop the web wrapper entirely and speak directly to the official REST API.** The result is a native GTK application with zero browser overhead.
+I started by wrapping `gemini.google.com` in a WebKitGTK window (basically a minimal browser). It worked locally but Google's WAF killed it in production: WebKitGTK has a distinct TLS fingerprint (different GREASE values and cipher ordering than Chrome/Safari) that Google's bot detection flags consistently, regardless of what User-Agent you spoof. Rather than pulling in Chromium Embedded Framework (~150 MB of deps) to fix the fingerprint, I scrapped the web wrapper entirely and called the REST API directly. Simpler, lighter, no more 502s.
 
 ---
 
 ## Features
 
-- **< 20 MB RAM** idle — no embedded browser engine
-- Multi-turn conversation history sent with every request (full context window)
+- ~15–30 MB RAM idle (vs. 500–800 MB for Chrome, 200–400 MB for Firefox)
+- Multi-turn conversations — full history sent with every request
+- API key stored in GNOME Keyring on first run; plain-file fallback (`~/.config/gemini-lite/`, mode 0600) if no Secret Service daemon is present
 - Dark theme via GTK system preference
-- Window size/position persisted across sessions (`~/.config/gemini-lite/`)
-- API key stored in **GNOME Keyring** (Secret Service) on first run; falls back to a mode-0600 file under `~/.config/gemini-lite/` if no Secret Service daemon is available
-- Built with `rustls` — no `libssl` / OpenSSL dependency
+- Window size/position remembered between sessions
+- No OpenSSL dependency — TLS handled by `rustls`
 
 ## Architecture
 
@@ -39,7 +37,7 @@ graph TD
     E -->|glib::MainContext spawn_local| A
 ```
 
-The GTK main loop and the HTTP layer never share state directly: `async_channel` bridges the two runtimes; GTK objects stay on the main thread at all times.
+GTK objects stay on the main thread. The HTTP layer runs in a Tokio runtime. `async_channel` is the only bridge between them.
 
 ---
 
@@ -51,13 +49,13 @@ The GTK main loop and the HTTP layer never share state directly: `async_channel`
 sudo apt-get install -y pkg-config libgtk-3-dev
 ```
 
-> No WebKit, no OpenSSL — those are the only native deps.
+No WebKit, no OpenSSL — those are the only native deps.
 
 ### Get a Gemini API key
 
 1. Go to [https://aistudio.google.com](https://aistudio.google.com)
-2. Click **Get API key** → **Create API key**
-3. Copy the key
+2. **Get API key** → **Create API key**
+3. Copy it — the app will ask for it on first launch
 
 ### Build & install
 
@@ -67,17 +65,17 @@ cd gemini-lite
 make install
 ```
 
-The binary lands in `~/.local/bin/gemini-lite` and a `.desktop` entry is registered for your app launcher.
+Binary goes to `~/.local/bin/gemini-lite`, desktop entry to `~/.local/share/applications/`.
 
-### First run
+### Run
 
 ```bash
 gemini-lite
 ```
 
-On first launch with no key configured, the app shows an onboarding screen where you paste your key. It is saved automatically to your system keyring.
+First launch shows an onboarding screen to paste your key. It gets saved to your system keyring automatically. After that, just launch and chat.
 
-Alternatively, set the environment variable before launching (useful for dev):
+If you prefer the environment variable (handy for dev):
 
 ```bash
 export GEMINI_API_KEY="AIza..."
@@ -98,17 +96,10 @@ gemini-lite
 ## Development
 
 ```bash
-# Run with debug logs
-make dev
-
-# Release build
-make build
-
-# Lint (clippy + fmt check)
-make lint
-
-# Auto-format
-make fmt
+make dev     # cargo run with RUST_LOG=debug
+make build   # release build
+make lint    # clippy + fmt check
+make fmt     # auto-format
 ```
 
 ---
