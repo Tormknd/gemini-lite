@@ -7,10 +7,14 @@
 > A lightweight, native Linux client for Google Gemini. No Electron, no WebKit, just Rust.
 
 [![CI](https://github.com/Tormknd/gemini-lite/actions/workflows/ci.yml/badge.svg)](https://github.com/Tormknd/gemini-lite/actions/workflows/ci.yml)
-![Rust](https://img.shields.io/badge/language-Rust-orange.svg)
-![GTK3](https://img.shields.io/badge/toolkit-GTK3-blue.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Platform](https://img.shields.io/badge/platform-Linux-lightgrey.svg)
+[![GitHub release](https://img.shields.io/github/v/release/Tormknd/gemini-lite?include_prereleases&style=flat-square&color=blue)](https://github.com/Tormknd/gemini-lite/releases)
+![Language](https://img.shields.io/badge/language-Rust-orange?style=flat-square)
+![Toolkit](https://img.shields.io/badge/toolkit-GTK3-blue?style=flat-square)
+![Security](https://img.shields.io/badge/security-audited-brightgreen?style=flat-square&logo=rust)
+![Binary size](https://img.shields.io/badge/binary--size-%3C5MB-blueviolet?style=flat-square)
+![Maintenance](https://img.shields.io/badge/maintenance-actively--developed-brightgreen?style=flat-square)
+![License](https://img.shields.io/badge/license-MIT-yellow?style=flat-square)
+![Platform](https://img.shields.io/badge/platform-Linux-lightgrey?style=flat-square)
 
 Gemini Lite started from a simple frustration: asking text questions should not require a full browser engine and hundreds of MB of RAM. This app is a native GTK client in Rust that talks directly to the Gemini API.
 
