@@ -1,6 +1,6 @@
 [package]
 name = "gemini-lite"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Lightweight native Gemini client for Linux — pure GTK + official API"
 license = "MIT"
@@ -41,7 +41,8 @@ license-file = ["LICENSE", "4"]
 section = "net"
 priority = "optional"
 revision = ""
-depends = "$auto, libc6, libgtk-3-0, libglib2.0-0"
+depends = "$auto, libc6, libgtk-3-0, libglib2.0-0, libgtk-3-bin, desktop-file-utils"
+maintainer-scripts = "debian"
 extended-description = """\
  Lightweight native Gemini client for Linux (GTK 3, official REST API). \
  No embedded browser engine: low memory use and minimal runtime dependencies.\
