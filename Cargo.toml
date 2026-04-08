@@ -1,6 +1,6 @@
 [package]
 name = "gemini-lite"
-version = "0.2.0"
+version = "0.1.0"
 edition = "2021"
 description = "Lightweight native Gemini client for Linux — pure GTK + official API"
 license = "MIT"
@@ -32,3 +32,22 @@ lto = "thin"
 codegen-units = 1
 strip = "symbols"
 panic = "abort"
+
+[package.metadata.deb]
+name = "gemini-lite"
+maintainer = "Tormknd <https://github.com/Tormknd>"
+copyright = "2026, Tormknd"
+license-file = ["LICENSE", "4"]
+section = "net"
+priority = "optional"
+revision = ""
+depends = "$auto, libc6, libgtk-3-0, libglib2.0-0"
+extended-description = """\
+ Lightweight native Gemini client for Linux (GTK 3, official REST API). \
+ No embedded browser engine: low memory use and minimal runtime dependencies.\
+"""
+assets = [
+  ["target/release/gemini-lite", "usr/bin/gemini-lite", "755"],
+  ["gemini-lite.desktop", "usr/share/applications/gemini-lite.desktop", "644"],
+  ["assets/Logo.png", "usr/share/icons/hicolor/512x512/apps/gemini-lite.png", "644"],
+]

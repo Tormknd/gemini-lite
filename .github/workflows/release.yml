@@ -1,0 +1,116 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release-linux-amd64:
+    name: Build and publish (Linux amd64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Verify Cargo.toml version matches git tag
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          TAG_VER="${TAG_NAME#v}"
+          CARGO_VER="$(python3 -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['package']['version'])")"
+          if [ "$CARGO_VER" != "$TAG_VER" ]; then
+            echo "::error::Git tag ${TAG_NAME} requires Cargo.toml version ${TAG_VER}, but found ${CARGO_VER}."
+            exit 1
+          fi
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Prepare artefacts (strip, .deb, archive, checksums)
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          VERSION="${TAG_NAME#v}"
+          mkdir -p release
+
+          cp target/release/gemini-lite release/gemini-lite-linux-amd64
+          strip release/gemini-lite-linux-amd64
+
+          cargo install cargo-deb --locked
+          cargo deb --no-build
+          cp "target/debian/gemini-lite_${VERSION}_amd64.deb" "release/gemini-lite_${VERSION}_amd64.deb"
+
+          tar -czf release/gemini-lite-linux-amd64.tar.gz -C release gemini-lite-linux-amd64
+
+          (
+            cd release
+            sha256sum gemini-lite-linux-amd64 "gemini-lite_${VERSION}_amd64.deb" gemini-lite-linux-amd64.tar.gz \
+              | LC_ALL=C sort -k2 > SHA256SUMS
+          )
+
+      - name: Generate release notes (commits since previous tag)
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          CURRENT="${TAG_NAME}"
+          PREV_TAG=""
+          found=false
+          while IFS= read -r t; do
+            if [[ "$found" == true ]]; then
+              PREV_TAG="$t"
+              break
+            fi
+            if [[ "$t" == "$CURRENT" ]]; then
+              found=true
+            fi
+          done < <(git tag -l 'v*' --sort=-version:refname)
+
+          {
+            echo "## ${CURRENT}"
+            echo ""
+            if [[ -n "${PREV_TAG}" ]]; then
+              echo "Commits since **${PREV_TAG}**:"
+              echo ""
+              git log "${PREV_TAG}..${CURRENT}" --pretty=format:'- %s (%h)'
+            else
+              echo "First release — full commit history:"
+              echo ""
+              git log --pretty=format:'- %s (%h)'
+            fi
+            echo ""
+          } > release/RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body_path: release/RELEASE_NOTES.md
+          files: |
+            release/gemini-lite-linux-amd64
+            release/gemini-lite_*_amd64.deb
+            release/gemini-lite-linux-amd64.tar.gz
+            release/SHA256SUMS
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
