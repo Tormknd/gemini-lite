@@ -197,7 +197,7 @@ make fmt     # auto-format
 cargo test   # unit tests + integration tests (wiremock SSE mocks, no network)
 ```
 
-Continuous integration (GitHub Actions) runs **lint**, **tests**, **cargo-audit**, and a **release build** on pushes and pull requests to `main` / `dev`. Pushing a version tag matching `v*` (for example `v0.1.0`) triggers the **Release** workflow: optimized Linux amd64 binary, `.deb`, `.tar.gz`, `SHA256SUMS`, and GitHub release notes from commits since the previous tag. The value in `Cargo.toml` `[package].version` must match the tag without the leading `v`.
+Continuous integration (GitHub Actions) runs **lint**, **tests**, **cargo-audit**, and a **release build** on pushes and pull requests to `main` / `dev`. Pushing a version tag matching `v*` (for example `v0.1.1`) triggers the **Release** workflow: optimized Linux amd64 binary, `.deb`, `.tar.gz`, `SHA256SUMS`, and GitHub release notes from commits since the previous tag. The value in `Cargo.toml` `[package].version` must match the tag without the leading `v`.
 
 ---
 
