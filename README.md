@@ -91,19 +91,60 @@ GTK stays on the main thread. HTTP runs in Tokio. `async-channel` bridges the tw
 
 ## Installation
 
-### Prerequisites
+### Recommended: install script (latest release)
+
+From the default branch (replace `main` if your default branch differs):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Tormknd/gemini-lite/main/install.sh | bash
+```
+
+The script resolves the **latest** GitHub release via the API. On **Debian/Ubuntu**, it installs the published `.deb` when available (dependencies via `apt`/`dpkg`). On other Linux distributions it downloads the `gemini-lite-linux-amd64` asset and installs the binary under `~/.local/bin` by default.
+
+Optional environment variables:
+
+| Variable | Purpose |
+| -------- | ------- |
+| `GEMINI_LITE_REPO` | `owner/name` repository (default: `Tormknd/gemini-lite`) |
+| `GEMINI_LITE_INSTALL_DIR` | Binary install directory for non-deb path (default: `$HOME/.local/bin`) |
+| `GEMINI_LITE_METHOD` | `auto` (default), `deb`, or `binary` |
+
+`curl` and `python3` are required (Python is used only to parse the GitHub API JSON). For `.deb` installation as a non-root user, `sudo` is required.
+
+### Manual: Debian package from Releases
+
+1. Open the [Releases](https://github.com/Tormknd/gemini-lite/releases) page and download `gemini-lite_<version>_amd64.deb` for the version you want.
+2. Install:
+
+```bash
+sudo apt-get install -y ./gemini-lite_<version>_amd64.deb
+```
+
+Or: `sudo dpkg -i gemini-lite_<version>_amd64.deb` then `sudo apt-get install -f` if dependencies need to be resolved.
+
+### Verify downloads (SHA256)
+
+Each release includes a `SHA256SUMS` file listing hashes for `gemini-lite-linux-amd64`, the `.deb`, and `gemini-lite-linux-amd64.tar.gz`. After downloading the files into the same directory:
+
+```bash
+sha256sum -c SHA256SUMS
+```
+
+### Build from source
+
+**Build prerequisites:**
 
 ```bash
 sudo apt-get install -y pkg-config libgtk-3-dev
 ```
 
-### Get a Gemini API key
+**Get a Gemini API key**
 
 1. Go to [https://aistudio.google.com](https://aistudio.google.com)
 2. Click **Get API key** then **Create API key**
 3. Keep it ready for first launch
 
-### Build and install
+**Clone and install (user prefix)**
 
 ```bash
 git clone https://github.com/Tormknd/gemini-lite
@@ -111,7 +152,7 @@ cd gemini-lite
 make install
 ```
 
-Binary goes to `~/.local/bin/gemini-lite`, desktop entry to `~/.local/share/applications/`.
+Binary goes to `~/.local/bin/gemini-lite`, desktop entry and icon follow XDG locations under `~/.local/share/`.
 
 ### Run
 
@@ -156,7 +197,7 @@ make fmt     # auto-format
 cargo test   # unit tests + integration tests (wiremock SSE mocks, no network)
 ```
 
-Continuous integration (GitHub Actions) runs **lint**, **tests**, **cargo-audit**, and a **release build** on pushes and pull requests to `main` / `dev`.
+Continuous integration (GitHub Actions) runs **lint**, **tests**, **cargo-audit**, and a **release build** on pushes and pull requests to `main` / `dev`. Pushing a version tag matching `v*` (for example `v0.1.0`) triggers the **Release** workflow: optimized Linux amd64 binary, `.deb`, `.tar.gz`, `SHA256SUMS`, and GitHub release notes from commits since the previous tag. The value in `Cargo.toml` `[package].version` must match the tag without the leading `v`.
 
 ---
 
